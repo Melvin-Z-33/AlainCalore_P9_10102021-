@@ -19,9 +19,12 @@ export default class NewBill {
 	handleChangeFile = (e) => {
 		const file = this.document.querySelector(`input[data-testid="file"]`).files[0];
 
+		console.log(file);
+		const filePath = e.target.value.split(/\\/g);
+		const fileName = filePath[filePath.length - 1];
+
 		if (file.name.includes('jpg') || file.name.includes('png') || file.name.includes('jpeg')) {
-			const filePath = e.target.value.split(/\\/g);
-			const fileName = filePath[filePath.length - 1];
+			console.log(this.firestore);
 			this.firestore.storage
 				.ref(`justificatifs/${fileName}`)
 				.put(file)
@@ -31,9 +34,9 @@ export default class NewBill {
 					this.fileName = fileName;
 				});
 		} else {
-			alert("ce format n'est pas supporté; Recommencer avec un fichier jpg, png ou jpeg");
-
-			return 'abc';
+			alert('mauvais format');
+			console.log('mauvais format');
+			e.target.value = '';
 		}
 	};
 	handleSubmit = (e) => {
@@ -59,6 +62,7 @@ export default class NewBill {
 		};
 		this.createBill(bill);
 		this.onNavigate(ROUTES_PATH['Bills']);
+		console.log(email);
 	};
 
 	// not need to cover this function by tests

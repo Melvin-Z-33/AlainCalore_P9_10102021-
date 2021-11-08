@@ -1,23 +1,14 @@
-import { screen, fireEvent } from '@testing-library/dom';
+import { screen } from '@testing-library/dom';
 import BillsUI from '../views/BillsUI.js';
 import { bills } from '../fixtures/bills.js';
 import Bills from '../containers/Bills.js';
-import NewBill from '../containers/NewBill.js';
-import NewBillUI from '../views/NewBillUI.js';
 import { ROUTES } from '../constants/routes';
-import Logout from '../containers/Logout.js';
 import '@testing-library/jest-dom/extend-expect';
-import { localStorageMock } from '../__mocks__/localStorage.js';
 import userEvent from '@testing-library/user-event';
-
+import Router from '../app/Router';
+import Firestore from '../app/Firestore';
 import { ROUTES_PATH } from '../constants/routes.js';
-import { formatDate, formatStatus } from '../app/format.js';
-
 import firebase from '../__mocks__/firebase';
-
-import DashboardFormUI from '../views/DashboardFormUI.js';
-import DashboardUI from '../views/DashboardUI.js';
-import Dashboard, { filteredBills, cards } from '../containers/Dashboard.js';
 
 describe('Given I am connected as an employee', () => {
 	describe('When I am on Bills Page', () => {
@@ -25,7 +16,29 @@ describe('Given I am connected as an employee', () => {
 			const html = BillsUI({ data: [] });
 			document.body.innerHTML = html;
 			//to-do write expect expression
+			// ** Mock - parameters for bdd Firebase & data fetching **
+			jest.mock('../app/Firestore');
+			Firestore.bills = () => ({ bills, get: jest.fn().mockResolvedValue() });
+
+			window.localStorage.setItem(
+				'user',
+				JSON.stringify({
+					type: 'Employee',
+				}),
+			);
+			// ** Routing variable **
+			const pathname = ROUTES_PATH['Bills'];
+
+			// ** build div DOM **
+			Object.defineProperty(window, 'location', { value: { hash: pathname } });
+			document.body.innerHTML = `<div id="root"></div>`;
+
+			// ** Router init to get actives CSS classes **
+			Router();
+
+			expect(screen.getByTestId('icon-window').classList.contains('active-icon')).toBe(true);
 		});
+
 		test('Then bills should be ordered from earliest to latest', () => {
 			const html = BillsUI({ data: bills });
 			document.body.innerHTML = html;
@@ -39,54 +52,66 @@ describe('Given I am connected as an employee', () => {
 	});
 });
 
-//!Test new bill
-describe('Given I am connected as Admin and I am on Dashboard page and I clicked on a bill', () => {
-	describe('When I click on the button "New Bills"', () => {
-		Object.defineProperty(window, 'localStorage', { value: localStorageMock });
-		const user = JSON.stringify({
-			type: 'Employee',
+describe('When i click on an icon eye of a bill', () => {
+	test('Then a modal should open', () => {
+		document.body.innerHTML = BillsUI({ data: bills });
+		const testBills = new Bills({
+			document,
+			onNavigate,
+			firestore: null,
+			localStorage: window.localStorage,
 		});
-		window.localStorage.setItem('user', user);
+		const handleClickIconEye = jest.fn(testBills.handleClickIconEye);
 
-		const html = BillsUI({ data: bills });
-		document.body.innerHTML = html;
+		// ** Mock modal comportment **
+		$.fn.modal = jest.fn();
+		const eye = screen.getAllByTestId('icon-eye');
+		eye[0].addEventListener('click', handleClickIconEye(eye[0]));
+		userEvent.click(eye[0]);
+		expect(handleClickIconEye).toHaveBeenCalled();
+		const modale = document.getElementById('modaleFile');
+		expect(modale).toBeTruthy();
+	});
+});
+
+describe('When I click on new bill button', () => {
+	test('Then, I should be sent to new bill page', () => {
 		const onNavigate = (pathname) => {
 			document.body.innerHTML = ROUTES({ pathname });
 		};
-		const firestore = null;
-		const newBillx = new Bills({
-			document,
-			onNavigate,
-			firestore,
-			localStorage: window.localStorage,
+		document.body.innerHTML = BillsUI({ data: bills });
+		const bill = new Bills({ document, onNavigate, localStorage });
+		const handleClick = jest.fn(bill.handleClickNewBill);
+		const btnNewBill = screen.getByTestId('btn-new-bill');
+		btnNewBill.addEventListener('click', handleClick);
+		userEvent.click(btnNewBill);
+		expect(handleClick).toHaveBeenCalled();
+		expect(screen.getByText('Envoyer une note de frais')).toBeTruthy();
+	});
+});
+
+// test d'intégration GET
+describe('Given I am a user connected as Employee', () => {
+	describe('When I navigate to Bill', () => {
+		test('fetches bills from mock API GET', async () => {
+			const getSpy = jest.spyOn(firebase, 'get');
+			const bills = await firebase.get();
+			expect(getSpy).toHaveBeenCalledTimes(1);
+			expect(bills.data.length).toBe(4);
 		});
-		test('A New Form  open', () => {
-			const handleClickNewBill = jest.fn((e) => {
-				newBillx.handleClickNewBill;
-			});
-			const routes = jest.fn((icon) => {});
-
-			const buttonNewBill = screen.getByTestId('btn-new-bill');
-			buttonNewBill.addEventListener('click', handleClickNewBill);
-			userEvent.click(buttonNewBill);
-			expect(handleClickNewBill).toHaveBeenCalled();
-			//modaleFileEmployee
-			const modale = screen.getByTestId('modaleFileEmployee');
-			expect(modale).toBeTruthy();
+		test('fetches bills from an API and fails with 404 message error', async () => {
+			firebase.get.mockImplementationOnce(() => Promise.reject(new Error('Erreur 404')));
+			const html = BillsUI({ error: 'Erreur 404' });
+			document.body.innerHTML = html;
+			const message = await screen.getByText(/Erreur 404/);
+			expect(message).toBeTruthy();
 		});
-
-		test('should open à modal', () => {
-			const eye = screen.getAllByTestId('icon-eye');
-			eye.forEach((icon) => {
-				const handleClickIconEye = jest.fn((icon) => {
-					newBillx.handleClickIconEye;
-				});
-				icon.addEventListener('click', handleClickIconEye);
-
-				userEvent.click(icon);
-				expect(handleClickIconEye).toHaveBeenCalled();
-				//expect(billUrl).toEqual(icon.getAttribute('data-bill-url'));
-			});
+		test('fetches messages from an API and fails with 500 message error', async () => {
+			firebase.get.mockImplementationOnce(() => Promise.reject(new Error('Erreur 500')));
+			const html = BillsUI({ error: 'Erreur 500' });
+			document.body.innerHTML = html;
+			const message = await screen.getByText(/Erreur 500/);
+			expect(message).toBeTruthy();
 		});
 	});
 });
